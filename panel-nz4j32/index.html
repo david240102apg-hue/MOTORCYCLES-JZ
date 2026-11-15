@@ -415,7 +415,7 @@ td.n{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
             <li>Toca <b>Enviar prueba</b>: debe sonar tu celular.</li></ol></details>
           <form id="ntfyForm" class="form">
             <label class="wide">Tema de avisos (mantenlo privado)<input id="ntfyTopic" autocomplete="off" placeholder="jz-xxxxxxxxxxxxxx"></label>
-            <div class="row start wide"><button class="btn" type="submit">Guardar</button><button class="btn ghost" type="button" id="ntfyGen">Generar tema</button><button class="btn ghost" type="button" id="ntfyTest">Enviar prueba</button></div>
+            <div class="row start wide"><button class="btn" type="submit">Guardar</button><button class="btn ghost" type="button" id="ntfyGen">Generar tema</button><button class="btn ghost" type="button" id="ntfyTest">Enviar prueba</button><button class="btn ghost" type="button" id="ntfyCheck">Verificar con compradores</button></div>
           </form></div>
         <div class="card stack"><h3>Instalar como app (publicar el sitio)</h3>
           <p class="hint">Para que aparezca <b>"Instalar app"</b> en Chrome, la página tiene que estar publicada con https. Este botón arma un <b>.zip</b> con todo listo: la tienda para compradores, la app de administrador en una carpeta privada, los íconos y los archivos que exige el navegador.</p>
@@ -1135,6 +1135,11 @@ $('#fbNow').addEventListener('click',()=>{if(!fbOn()){toast('Primero guarda la c
 function loadNtfyForm(){const a=document.activeElement;if(a&&a.id==='ntfyTopic')return;$('#ntfyTopic').value=S.cfg.ntfy||''}
 $('#ntfyForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{const v=$('#ntfyTopic').value.trim();if(v&&!/^[A-Za-z0-9_-]{8,}$/.test(v))throw new Error('Usa solo letras, números, - o _ (mínimo 8).');S.cfg=Object.assign({},S.cfg,{ntfy:v});commit();toast(v?'Aviso guardado y publicado.':'Avisos desactivados.')})});
 $('#ntfyGen').addEventListener('click',()=>{const a=new Uint8Array(9);crypto.getRandomValues(a);$('#ntfyTopic').value='jz-'+Array.from(a,b=>b.toString(36).padStart(2,'0')).join('').slice(0,14)});
+$('#ntfyCheck').addEventListener('click',async()=>{const b=pubFb();if(!b){toast('Conecta Firebase primero.',true);return}if(!ntfyTopic()){toast('Primero guarda un tema.',true);return}
+  const get=()=>fetch(b+'/catalogo/cfg/ntfy.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).catch(()=>null);
+  let v=await get();if(v===ntfyTopic()){toast('✓ Los compradores ya tienen tu tema. Los avisos de pedidos deben llegar.');return}
+  toast('Los compradores no tienen tu tema. Publicando…');await fbPublish(true);v=await get();
+  toast(v===ntfyTopic()?'✓ Listo: ahora los compradores tienen tu tema.':'No se pudo publicar. Revisa la conexión de Firebase en este panel.',v!==ntfyTopic())});
 $('#ntfyTest').addEventListener('click',()=>{if(!ntfyTopic()){toast('Primero guarda un tema.',true);return}ntfySend('Prueba MotorCycles-JZ','Si ves esto, los avisos funcionan.',['white_check_mark']).then(ok=>toast(ok?'Aviso de prueba enviado.':'No se pudo enviar el aviso.',!ok))});
 $('#fbOff').addEventListener('click',()=>{const c=Object.assign({},S.cfg);delete c.fb;S.cfg=c;save();loadFbForm();fbSet('Desconectado. El inventario en línea queda como estaba.')});
 
