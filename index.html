@@ -317,6 +317,7 @@ td.n{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
 
       <section id="p-pedidos" class="panel" hidden="">
         <div class="pagehead"><h2>Pedidos de compradores</h2><p>Al confirmar un pedido se registra la venta con el precio actual del catálogo y se descuenta el stock.</p></div>
+        <div class="row start"><button class="btn ghost sm" type="button" id="syncNow">Buscar pedidos ahora</button><span class="muted" id="syncStatus"></span></div>
         <div id="ordList" class="stack"></div>
       </section>
 
@@ -731,7 +732,7 @@ $('#cartBar').addEventListener('click',openCart);
 function renderDrawer(){
   const d=S.done;$('#cartView').hidden=!!d;$('#doneView').hidden=!d;
   if(!d)return;
-  $('#doneView').innerHTML='<div class="okmark">✓</div><h2>¡Pedido preparado!</h2><div class="code">'+esc(d.id)+'</div>'+(rateVal()?'<p class="hint"><b>Total a pagar: '+money(d.total)+' · '+bs(d.total)+'</b></p>':'')+'<p class="hint">Si WhatsApp no se abrió, toca el botón verde para enviar el pedido al vendedor. Guarda este código.</p>'
+  $('#doneView').innerHTML='<div class="okmark">✓</div><h2>¡Pedido preparado!</h2><div class="code">'+esc(d.id)+'</div>'+(rateVal()?'<p class="hint"><b>Total a pagar: '+money(d.total)+' · '+bs(d.total)+'</b></p>':'')+'<p class="hint" id="syncMsg">Registrando tu pedido…</p><p class="hint">Si WhatsApp no se abrió, toca el botón verde para enviar el pedido al vendedor. Guarda este código.</p>'
     +((d.pay==='pm'&&(S.cfg.pays||[]).length)?'<h3>Formas de pago</h3>'+S.cfg.pays.map(p=>'<div class="pay"><b>'+esc(p.name)+(p.cur?' ('+esc(p.cur)+')':'')+'</b>\n'+esc(p.text)+(p.qr?'<img src="'+esc(p.qr)+'" alt="QR de pago">':'')+'</div>').join(''):'')+(d.pay==='pm'?'<div class="pay"><b>¿Ya pagaste?</b><input id="payRef" placeholder="N.º de referencia del pago"><button type="button" class="btn ghost" id="payDone">Avisar al vendedor</button></div>':'<div class="pay"><b>'+esc(PAYM[d.pay]||'')+'</b>\nCoordina el pago con el vendedor.</div>')+'<a class="btn wa" href="'+esc(d.link)+'" target="_blank" rel="noopener">'+svg('wa')+'Enviar al vendedor por WhatsApp</a>'
     +'<button type="button" class="btn ghost" id="doneOrders">Ver mis pedidos</button><button type="button" class="btn ghost" id="doneClose">Seguir comprando</button>';
   if($('#payDone'))$('#payDone').onclick=()=>{const v=$('#payRef').value.trim();if(!v){toast('Escribe el número de referencia.',true);return}ntfySend('Pago reportado '+d.id,d.buyerName+' dice que pagó '+money(d.total)+(rateVal()?' ('+bs(d.total)+')':'')+'\nReferencia: '+v,['white_check_mark']);payPush(d,v);toast('Listo, avisamos al vendedor.')};
@@ -773,28 +774,31 @@ $('#orderForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{
   const mine=lsGet(KEY_MINE,[]);mine.push(order.id);lsSet(KEY_MINE,mine);
   order.link=waTo(waOrderText(order));
   save();
-  pushOrder(order).then(ok=>{if(ok){order.sent=1;save()}});
+  pushOrder(order).then(ok=>{if(ok){order.sent=1;save()}const m=$('#syncMsg');if(m)m.textContent=ok?'✓ Tu pedido quedó registrado con el vendedor.':'⚠ No se pudo registrar en el sistema ('+PUSH_ERR+'). Envíalo por WhatsApp; se reintentará solo.'});
   ntfySend('Nuevo pedido '+order.id,order.buyerName+' · '+order.contact+'\n'+order.items.map(i=>i.qty+' × '+i.name).join('\n')+'\nTotal: '+money(order.total)+(rateVal()?' ('+bs(order.total)+')':'')+'\nPago: '+(PAYM[order.pay]||''),['motorcycle','money_with_wings']);
   S.cart={};S.done=order;$('#oNote').value='';renderCart();renderDrawer();renderMine();
   if(sellerWa())window.open(order.link,'_blank','noopener');
   else toast('El vendedor aún no configuró su WhatsApp.',true);
 })});
 
+let PUSH_ERR='';const clean=c=>{const o=Object.assign({},c||{});Object.keys(o).forEach(k=>{if(o[k]===''||o[k]==null)delete o[k]});return o};
 const PAYM={pm:'Pago Móvil',usd:'Divisas en efectivo',tienda:'Pagar en tienda',bs:'Bolívares en efectivo'};
 function fillPaySel(){const el=$('#oPay');if(!el)return;const o=S.cfg.payOpts||{},ks=Object.keys(PAYM).filter(k=>o[k]!==false),h=ks.map(k=>'<option value="'+k+'">'+PAYM[k]+'</option>').join('');if(el.dataset.k!==h){const v=el.value;el.innerHTML=h;el.dataset.k=h;if(ks.includes(v))el.value=v}}
 const pubFb=()=>fbBase(S.cfg.fbUrl||(S.cfg.fb&&S.cfg.fb.url)||'');
-function pushOrder(o){const b=pubFb();if(!b)return Promise.resolve(false);const c=Object.assign({},o);delete c.link;return fetch(b+'/pedidos/'+encodeURIComponent(o.id)+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}).then(r=>r.ok).catch(()=>false)}
+function pushOrder(o){const b=pubFb();if(!b){PUSH_ERR='sin dirección de la base de datos';return Promise.resolve(false)}const c=Object.assign({},o);delete c.link;return fetch(b+'/pedidos/'+encodeURIComponent(o.id)+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}).then(r=>{if(!r.ok)PUSH_ERR='error '+r.status+(r.status===401||r.status===403?' (reglas de Firebase)':'');return r.ok}).catch(()=>{PUSH_ERR='sin conexión';return false})}
 function payPush(d,v){const b=pubFb();if(!b)return;fetch(b+'/pagos.json',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({oid:d.id,ref:v,method:d.pay||'pm',createdAt:Date.now()})}).catch(()=>{})}
 async function fbOrderStatus(o){if(!fbOn())return;try{const f=S.cfg.fb,tok=await fbToken(f);await fetch(fbBase(f.url)+'/pedidos/'+encodeURIComponent(o.id)+'.json?auth='+encodeURIComponent(tok),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:o.status,completedAt:o.completedAt||null})})}catch(e){}}
-async function syncOrders(){if(BUYER_ONLY||!fbOn())return;try{const f=S.cfg.fb,tok=await fbToken(f),b=fbBase(f.url),q='.json?auth='+encodeURIComponent(tok);
-  const [po,pg]=await Promise.all([fetch(b+'/pedidos'+q).then(r=>r.ok?r.json():null),fetch(b+'/pagos'+q).then(r=>r.ok?r.json():null)]);
+const syncSet=m=>{const e=$('#syncStatus');if(e)e.textContent=m};
+async function syncOrders(){if(BUYER_ONLY)return;if(!fbOn()){syncSet('Firebase no está conectado en este dispositivo. Ve a Ajustes → Publicar inventario en línea y guarda tus datos.');return}try{const f=S.cfg.fb,tok=await fbToken(f),b=fbBase(f.url),q='.json?auth='+encodeURIComponent(tok);
+  const [po,pg]=await Promise.all([fetch(b+'/pedidos'+q).then(r=>{if(!r.ok)throw new Error(r.status===401||r.status===403?'Firebase rechazó la lectura: pega las reglas nuevas en Firebase.':'Error de Firebase ('+r.status+').');return r.json()}),fetch(b+'/pagos'+q).then(r=>r.ok?r.json():null)]);
   let ch=false,nw=0;
   Object.values(po||{}).forEach(r=>{if(!r||!r.id)return;const o=S.orders.find(x=>x.id===r.id);
     if(!o){S.orders.push(Object.assign({},r,{items:Array.isArray(r.items)?r.items:Object.values(r.items||{})}));ch=true;nw++}
     else if(r.status&&r.status!=='pendiente'&&o.status==='pendiente'){o.status=r.status;ch=true}});
   Object.values(pg||{}).forEach(p=>{const o=p&&S.orders.find(x=>x.id===p.oid);if(o&&o.payRef!==p.ref){o.payRef=p.ref;ch=true}});
   if(ch){save();renderAll();if(nw)toast('Llegó '+(nw>1?nw+' pedidos nuevos.':'un pedido nuevo.'))}
-}catch(e){fbTok={t:'',exp:0}}}
+  syncSet('Conectado ✓ · '+Object.keys(po||{}).length+' pedidos en Firebase · revisado '+new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'}));
+}catch(e){fbTok={t:'',exp:0};syncSet(e.message==='Failed to fetch'?'Sin conexión.':e.message)}}
 /* ---- tasa en bolívares ---- */
 let RT={v:0,t:0,m:'',busy:false};
 function rateVal(){const r=S.cfg.rate||{},m=r.mode;
@@ -1196,9 +1200,9 @@ S.view='admin';
 $('#loginModal').hidden=true;$('#scrim').hidden=true;$('#drawer').hidden=true;
 prodPreview();renderAll();
 showTab(S.admin?'resumen':'tienda');
-if(!BUYER_ONLY){setTimeout(syncOrders,1500);setInterval(syncOrders,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncOrders()})}
+if(!BUYER_ONLY){$('#syncNow').addEventListener('click',()=>{syncSet('Buscando…');syncOrders()});setTimeout(syncOrders,1500);setInterval(syncOrders,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncOrders()})}
 if(BUYER_ONLY){
-  const apply=d=>{if(d&&Array.isArray(d.products)){S.products=d.products;S.cfg=Object.assign(blank().cfg,S.cfg,d.cfg||{},{fbUrl:(d.cfg&&d.cfg.fbUrl)||S.cfg.fbUrl});renderAll();return true}return false};
+  const apply=d=>{if(d&&Array.isArray(d.products)){S.products=d.products;S.cfg=Object.assign(blank().cfg,S.cfg,clean(d.cfg),{fbUrl:(d.cfg&&d.cfg.fbUrl)||S.cfg.fbUrl});renderAll();return true}return false};
   try{const c=JSON.parse(localStorage.getItem('jz_cache')||'null');if(c&&c.products&&c.products.length)apply(c)}catch(e){}
   const pull=()=>{
     const u=S.cfg.fbUrl?fbBase(S.cfg.fbUrl)+'/catalogo.json?t='+Date.now():'catalogo.json?v='+Date.now();
@@ -1207,7 +1211,7 @@ if(BUYER_ONLY){
       if(apply(d)){try{localStorage.setItem('jz_cache',JSON.stringify({products:d.products,cfg:d.cfg||{}}))}catch(e){}}
     }).catch(()=>{});
   };
-  pull();setInterval(pull,60000);setTimeout(()=>S.orders.filter(o=>o.sent===0&&o.status==='pendiente').forEach(o=>pushOrder(o).then(ok=>{if(ok){o.sent=1;save()}})),5000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()});
+  pull();setInterval(pull,60000);const retry=()=>S.orders.filter(o=>o.sent!==1&&o.status==='pendiente').forEach(o=>pushOrder(o).then(ok=>{if(ok){o.sent=1;save()}}));setTimeout(retry,5000);setInterval(retry,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()});
 }
 })();
 </script><script>if("serviceWorker" in navigator&&/^https?:/.test(location.protocol)){addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){})})}</script></body></html>
