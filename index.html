@@ -768,7 +768,7 @@ $('#orderForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{
   const ls=cartLines();if(!ls.length)throw new Error('Tu pedido está vacío.');
   for(const l of ls)if(l.qty>num(l.p.stock))throw new Error('No hay suficiente stock de '+l.p.name+'.');
   const order={id:'P'+Date.now().toString(36).toUpperCase().slice(-5)+Math.random().toString(36).slice(2,4).toUpperCase(),
-    items:ls.map(l=>({pid:l.p.id,name:l.p.name,qty:l.qty,price:num(l.p.price)})),total:cartTotal(ls),
+    items:ls.map(l=>({pid:l.p.id,name:l.p.name,sku:l.p.sku||'',qty:l.qty,price:num(l.p.price)})),total:cartTotal(ls),
     buyerName:$('#oName').value.trim(),contact:$('#oContact').value.trim(),note:$('#oNote').value.trim(),pay:$('#oPay').value||'pm',sent:0,status:'pendiente',createdAt:Date.now()};
   S.orders.push(order);
   const mine=lsGet(KEY_MINE,[]);mine.push(order.id);lsSet(KEY_MINE,mine);
@@ -980,9 +980,16 @@ $('#prodForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{
 })});
 
 /* ---- administrador: ventas ---- */
+const normTxt=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+function findProd(l){
+  let p=S.products.find(x=>x.id===l.pid);if(p)return p;
+  const sk=normTxt(l.sku);if(sk){p=S.products.find(x=>normTxt(x.sku)===sk);if(p)return p}
+  const nm=normTxt(l.name);if(nm){p=S.products.find(x=>normTxt(x.name)===nm);if(p)return p}
+  return null}
 function recordSale(lines,meta){
-  for(const l of lines){const p=S.products.find(x=>x.id===l.pid);
-    if(!p)throw new Error('Un repuesto del pedido ya no existe en el catálogo.');
+  for(const l of lines){const p=findProd(l);
+    if(!p)throw new Error('No encuentro «'+(l.name||'un repuesto')+'» en tu inventario. Revisa que exista con ese nombre en Inventario.');
+    l.pid=p.id;
     if(num(p.stock)<l.qty)throw new Error('Stock insuficiente de '+p.name+' (hay '+intf(p.stock)+').')}
   for(const l of lines){const p=S.products.find(x=>x.id===l.pid);
     S.sales.push({id:uid(),date:meta.date,pid:p.id,name:p.name,sku:p.sku||'',qty:l.qty,price:l.price==null?num(p.price):l.price,cost:num(p.cost),orderId:meta.orderId||'',buyer:meta.buyer||'',createdAt:Date.now()});
@@ -1040,7 +1047,7 @@ $('#ordList').addEventListener('click',e=>{
   const o=S.orders.find(z=>z.id===(c?t.dataset.conf:t.dataset.canc));if(!o)return;
   run(()=>{
     if(c){
-      recordSale((o.items||[]).map(i=>({pid:i.pid,qty:Math.max(1,Math.floor(num(i.qty)))})),{date:today(),orderId:o.id,buyer:o.buyerName});
+      recordSale((o.items||[]).map(i=>({pid:i.pid,name:i.name,sku:i.sku,qty:Math.max(1,Math.floor(num(i.qty)))})),{date:today(),orderId:o.id,buyer:o.buyerName});
       o.status='completado';o.completedAt=Date.now();commit();fbOrderStatus(o);toast('Venta registrada y stock descontado.');
     }else{o.status='cancelado';commit();fbOrderStatus(o);toast('Pedido cancelado.')}
   });
