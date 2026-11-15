@@ -829,7 +829,11 @@ $('#rateForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{
 /* ---- aviso al vendedor (ntfy) ---- */
 function ntfyTopic(){return String(S.cfg.ntfy||'').trim().replace(/[^A-Za-z0-9_-]/g,'')}
 let NTFY_ERR='';
-function ntfySend(title,message,tags){const t=ntfyTopic();if(!t){NTFY_ERR='esta tienda no tiene tu tema, recárgala';return Promise.resolve(false)}
+function ntfyResolve(){const t=ntfyTopic();if(t)return Promise.resolve(t);
+  const b=(typeof pubFb==='function')?pubFb():'';if(!b)return Promise.resolve('');
+  return fetch(b+'/catalogo/cfg/ntfy.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).then(v=>{v=String(v||'').trim().replace(/[^A-Za-z0-9_-]/g,'');if(v){S.cfg=Object.assign({},S.cfg,{ntfy:v});try{const c=JSON.parse(localStorage.getItem('jz_cache')||'null');if(c){c.cfg=Object.assign({},c.cfg,{ntfy:v});localStorage.setItem('jz_cache',JSON.stringify(c))}}catch(e){}}return v}).catch(()=>'')}
+function ntfySend(title,message,tags){return ntfyResolve().then(t=>{if(!t){NTFY_ERR='el vendedor aún no ha guardado su tema de avisos en Ajustes';return false}return ntfyPost(t,title,message,tags)})}
+function ntfyPost(t,title,message,tags){
   const go=()=>fetch('https://ntfy.sh/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:t,title:title,message:message,tags:tags||['motorcycle'],priority:4})}).then(r=>{if(!r.ok)NTFY_ERR='error '+r.status;return r.ok}).catch(()=>{NTFY_ERR='sin conexión o bloqueado por tu red';return false});
   return go().then(ok=>ok?true:new Promise(res=>setTimeout(()=>go().then(res),3000)))}
 
