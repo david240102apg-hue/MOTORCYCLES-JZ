@@ -1,0 +1,3 @@
+Sube esta carpeta completa a Netlify (app.netlify.com/drop).
+Link de compradores: tu-sitio.netlify.app
+Link de administrador (privado): tu-sitio.netlify.app/panel-nz4j32/
