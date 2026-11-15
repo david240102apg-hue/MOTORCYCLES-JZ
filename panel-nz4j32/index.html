@@ -379,6 +379,7 @@ td.n{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
             <label>Teléfono Pago Móvil<input id="pmPhone" inputmode="tel" autocomplete="off" placeholder="0412 000 0000"></label>
             <label>Cédula o RIF<input id="pmId" autocomplete="off"></label>
             <label>Titular (opcional)<input id="pmName" autocomplete="off"></label>
+            <div class="wide"><b>Formas de pago que ofreces</b><label style="flex-direction:row;display:flex;gap:8px;align-items:center"><input type="checkbox" id="pmo_pm" style="width:auto"> Pago Móvil</label><label style="flex-direction:row;display:flex;gap:8px;align-items:center"><input type="checkbox" id="pmo_usd" style="width:auto"> Divisas en efectivo</label><label style="flex-direction:row;display:flex;gap:8px;align-items:center"><input type="checkbox" id="pmo_tienda" style="width:auto"> Pagar en tienda</label><label style="flex-direction:row;display:flex;gap:8px;align-items:center"><input type="checkbox" id="pmo_bs" style="width:auto"> Bolívares en efectivo</label></div>
             <div class="row start wide"><button class="btn" type="submit">Guardar tasa y Pago Móvil</button></div>
           </form></div>
         <div class="card stack"><h3>Publicar inventario en línea</h3>
@@ -451,6 +452,7 @@ td.n{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
     <form id="orderForm" class="stack">
       <label>Nombre<input id="oName" required="" maxlength="80" autocomplete="name"></label>
       <label>Teléfono o WhatsApp<input id="oContact" required="" maxlength="60" autocomplete="tel" inputmode="tel"></label>
+      <label>Forma de pago<select id="oPay"></select></label>
       <label>Nota (moto, año, entrega)<textarea id="oNote" rows="2" maxlength="300"></textarea></label>
       <button id="oSend" class="btn wa" type="submit"><span data-ico="wa"></span>Enviar pedido por WhatsApp</button>
       <p class="hint">Se abrirá WhatsApp con tu pedido listo para enviar al vendedor. El pago y la entrega se acuerdan con él.</p>
@@ -730,9 +732,9 @@ function renderDrawer(){
   const d=S.done;$('#cartView').hidden=!!d;$('#doneView').hidden=!d;
   if(!d)return;
   $('#doneView').innerHTML='<div class="okmark">✓</div><h2>¡Pedido preparado!</h2><div class="code">'+esc(d.id)+'</div>'+(rateVal()?'<p class="hint"><b>Total a pagar: '+money(d.total)+' · '+bs(d.total)+'</b></p>':'')+'<p class="hint">Si WhatsApp no se abrió, toca el botón verde para enviar el pedido al vendedor. Guarda este código.</p>'
-    +((S.cfg.pays||[]).length?'<h3>Formas de pago</h3>'+S.cfg.pays.map(p=>'<div class="pay"><b>'+esc(p.name)+(p.cur?' ('+esc(p.cur)+')':'')+'</b>\n'+esc(p.text)+(p.qr?'<img src="'+esc(p.qr)+'" alt="QR de pago">':'')+'</div>').join(''):'')+'<div class="pay"><b>¿Ya pagaste?</b><input id="payRef" placeholder="N.º de referencia del pago"><button type="button" class="btn ghost" id="payDone">Avisar al vendedor</button></div><a class="btn wa" href="'+esc(d.link)+'" target="_blank" rel="noopener">'+svg('wa')+'Enviar al vendedor por WhatsApp</a>'
+    +((d.pay==='pm'&&(S.cfg.pays||[]).length)?'<h3>Formas de pago</h3>'+S.cfg.pays.map(p=>'<div class="pay"><b>'+esc(p.name)+(p.cur?' ('+esc(p.cur)+')':'')+'</b>\n'+esc(p.text)+(p.qr?'<img src="'+esc(p.qr)+'" alt="QR de pago">':'')+'</div>').join(''):'')+(d.pay==='pm'?'<div class="pay"><b>¿Ya pagaste?</b><input id="payRef" placeholder="N.º de referencia del pago"><button type="button" class="btn ghost" id="payDone">Avisar al vendedor</button></div>':'<div class="pay"><b>'+esc(PAYM[d.pay]||'')+'</b>\nCoordina el pago con el vendedor.</div>')+'<a class="btn wa" href="'+esc(d.link)+'" target="_blank" rel="noopener">'+svg('wa')+'Enviar al vendedor por WhatsApp</a>'
     +'<button type="button" class="btn ghost" id="doneOrders">Ver mis pedidos</button><button type="button" class="btn ghost" id="doneClose">Seguir comprando</button>';
-  $('#payDone').onclick=()=>{const v=$('#payRef').value.trim();if(!v){toast('Escribe el número de referencia.',true);return}ntfySend('Pago reportado '+d.id,d.buyerName+' dice que pagó '+money(d.total)+(rateVal()?' ('+bs(d.total)+')':'')+'\nReferencia: '+v,['white_check_mark']);toast('Listo, avisamos al vendedor.')};
+  if($('#payDone'))$('#payDone').onclick=()=>{const v=$('#payRef').value.trim();if(!v){toast('Escribe el número de referencia.',true);return}ntfySend('Pago reportado '+d.id,d.buyerName+' dice que pagó '+money(d.total)+(rateVal()?' ('+bs(d.total)+')':'')+'\nReferencia: '+v,['white_check_mark']);payPush(d,v);toast('Listo, avisamos al vendedor.')};
   $('#doneOrders').onclick=()=>{closeCart();showTab('mis-pedidos')};$('#doneClose').onclick=closeCart;
 }
 const buyerSaved=lsGet('mp_buyer',{});$('#oName').value=buyerSaved.n||'';$('#oContact').value=buyerSaved.c||'';
@@ -741,7 +743,7 @@ $('#cartBtn').addEventListener('click',openCart);$('#closeCart').addEventListene
 $('#scrim').addEventListener('click',()=>{closeCart();closeLogin()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeCart();closeLogin()}});
 function waOrderText(o){
-  return 'Hola '+biz()+', quiero hacer un pedido ('+o.id+'):\n'+o.items.map(i=>'• '+i.qty+' × '+i.name+' ('+money(i.price)+')').join('\n')+'\nTotal: '+money(o.total)+'\nNombre: '+o.buyerName+'\nContacto: '+o.contact+(o.note?'\nNota: '+o.note:'');
+  return 'Hola '+biz()+', quiero hacer un pedido ('+o.id+'):\n'+o.items.map(i=>'• '+i.qty+' × '+i.name+' ('+money(i.price)+')').join('\n')+'\nTotal: '+money(o.total)+'\nNombre: '+o.buyerName+'\nContacto: '+o.contact+'\nPago: '+(PAYM[o.pay]||'')+(o.note?'\nNota: '+o.note:'');
 }
 function renderCart(){
   const ls=cartLines(),n=ls.reduce((a,l)=>a+l.qty,0);
@@ -750,7 +752,7 @@ function renderCart(){
     +'<span class="qty"><button type="button" data-dec="'+esc(l.p.id)+'" aria-label="Quitar uno">−</button><span class="mono">'+l.qty+'</span><button type="button" data-inc="'+esc(l.p.id)+'" aria-label="Agregar uno">+</button></span>'
     +'<button type="button" class="btn ghost sm" data-rm="'+esc(l.p.id)+'">Quitar</button></div>').join('')
     +'<div class="total"><span>Total</span><b>'+money(cartTotal(ls))+'</b></div>'+bsHtml(cartTotal(ls)):empty('Tu pedido está vacío','Agrega repuestos desde el catálogo.');
-  $('#oSend').disabled=!ls.length;renderCatalog();renderNav();
+  $('#oSend').disabled=!ls.length;fillPaySel();renderCatalog();renderNav();
 }
 $('#cartList').addEventListener('click',e=>{
   const t=e.target.closest('button');if(!t)return;
@@ -766,17 +768,33 @@ $('#orderForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{
   for(const l of ls)if(l.qty>num(l.p.stock))throw new Error('No hay suficiente stock de '+l.p.name+'.');
   const order={id:'P'+Date.now().toString(36).toUpperCase().slice(-5)+Math.random().toString(36).slice(2,4).toUpperCase(),
     items:ls.map(l=>({pid:l.p.id,name:l.p.name,qty:l.qty,price:num(l.p.price)})),total:cartTotal(ls),
-    buyerName:$('#oName').value.trim(),contact:$('#oContact').value.trim(),note:$('#oNote').value.trim(),status:'pendiente',createdAt:Date.now()};
+    buyerName:$('#oName').value.trim(),contact:$('#oContact').value.trim(),note:$('#oNote').value.trim(),pay:$('#oPay').value||'pm',sent:0,status:'pendiente',createdAt:Date.now()};
   S.orders.push(order);
   const mine=lsGet(KEY_MINE,[]);mine.push(order.id);lsSet(KEY_MINE,mine);
   order.link=waTo(waOrderText(order));
   save();
-  ntfySend('Nuevo pedido '+order.id,order.buyerName+' · '+order.contact+'\n'+order.items.map(i=>i.qty+' × '+i.name).join('\n')+'\nTotal: '+money(order.total)+(rateVal()?' ('+bs(order.total)+')':''),['motorcycle','money_with_wings']);
+  pushOrder(order).then(ok=>{if(ok){order.sent=1;save()}});
+  ntfySend('Nuevo pedido '+order.id,order.buyerName+' · '+order.contact+'\n'+order.items.map(i=>i.qty+' × '+i.name).join('\n')+'\nTotal: '+money(order.total)+(rateVal()?' ('+bs(order.total)+')':'')+'\nPago: '+(PAYM[order.pay]||''),['motorcycle','money_with_wings']);
   S.cart={};S.done=order;$('#oNote').value='';renderCart();renderDrawer();renderMine();
   if(sellerWa())window.open(order.link,'_blank','noopener');
   else toast('El vendedor aún no configuró su WhatsApp.',true);
 })});
 
+const PAYM={pm:'Pago Móvil',usd:'Divisas en efectivo',tienda:'Pagar en tienda',bs:'Bolívares en efectivo'};
+function fillPaySel(){const el=$('#oPay');if(!el)return;const o=S.cfg.payOpts||{},ks=Object.keys(PAYM).filter(k=>o[k]!==false),h=ks.map(k=>'<option value="'+k+'">'+PAYM[k]+'</option>').join('');if(el.dataset.k!==h){const v=el.value;el.innerHTML=h;el.dataset.k=h;if(ks.includes(v))el.value=v}}
+const pubFb=()=>fbBase(S.cfg.fbUrl||(S.cfg.fb&&S.cfg.fb.url)||'');
+function pushOrder(o){const b=pubFb();if(!b)return Promise.resolve(false);const c=Object.assign({},o);delete c.link;return fetch(b+'/pedidos/'+encodeURIComponent(o.id)+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}).then(r=>r.ok).catch(()=>false)}
+function payPush(d,v){const b=pubFb();if(!b)return;fetch(b+'/pagos.json',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({oid:d.id,ref:v,method:d.pay||'pm',createdAt:Date.now()})}).catch(()=>{})}
+async function fbOrderStatus(o){if(!fbOn())return;try{const f=S.cfg.fb,tok=await fbToken(f);await fetch(fbBase(f.url)+'/pedidos/'+encodeURIComponent(o.id)+'.json?auth='+encodeURIComponent(tok),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:o.status,completedAt:o.completedAt||null})})}catch(e){}}
+async function syncOrders(){if(BUYER_ONLY||!fbOn())return;try{const f=S.cfg.fb,tok=await fbToken(f),b=fbBase(f.url),q='.json?auth='+encodeURIComponent(tok);
+  const [po,pg]=await Promise.all([fetch(b+'/pedidos'+q).then(r=>r.ok?r.json():null),fetch(b+'/pagos'+q).then(r=>r.ok?r.json():null)]);
+  let ch=false,nw=0;
+  Object.values(po||{}).forEach(r=>{if(!r||!r.id)return;const o=S.orders.find(x=>x.id===r.id);
+    if(!o){S.orders.push(Object.assign({},r,{items:Array.isArray(r.items)?r.items:Object.values(r.items||{})}));ch=true;nw++}
+    else if(r.status&&r.status!=='pendiente'&&o.status==='pendiente'){o.status=r.status;ch=true}});
+  Object.values(pg||{}).forEach(p=>{const o=p&&S.orders.find(x=>x.id===p.oid);if(o&&o.payRef!==p.ref){o.payRef=p.ref;ch=true}});
+  if(ch){save();renderAll();if(nw)toast('Llegó '+(nw>1?nw+' pedidos nuevos.':'un pedido nuevo.'))}
+}catch(e){fbTok={t:'',exp:0}}}
 /* ---- tasa en bolívares ---- */
 let RT={v:0,t:0,m:'',busy:false};
 function rateVal(){const r=S.cfg.rate||{},m=r.mode;
@@ -793,7 +811,7 @@ function pmGet(){const p=(S.cfg.pays||[]).find(x=>x.id==='pm1')||{},t=p.text||''
 function loadRateForm(){const r=S.cfg.rate||{},v=rateVal();
   $('#rateNow').textContent=r.mode==='usd'||r.mode==='eur'?(v?'Tasa actual: Bs '+v.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+' (se actualiza sola)':'Buscando la tasa en internet…'):r.mode==='custom'?(v?'Tasa personalizada: Bs '+v:'Escribe tu tasa.'):'Los compradores verán solo precios en $.';
   const a=document.activeElement;if(a&&a.closest&&a.closest('#rateForm'))return;
-  const p=pmGet();$('#rateMode').value=r.mode||'off';$('#rateCustom').value=r.custom||'';$('#pmBank').value=p.bank;$('#pmPhone').value=p.phone;$('#pmId').value=p.id;$('#pmName').value=p.name}
+  const p=pmGet();$('#rateMode').value=r.mode||'off';$('#rateCustom').value=r.custom||'';$('#pmBank').value=p.bank;$('#pmPhone').value=p.phone;$('#pmId').value=p.id;$('#pmName').value=p.name;const po=S.cfg.payOpts||{};Object.keys(PAYM).forEach(k=>{$('#pmo_'+k).checked=po[k]!==false})}
 $('#rateForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{
   const mode=$('#rateMode').value,custom=$('#rateCustom').value.trim();
   if(mode==='custom'&&!(Number(custom.replace(',','.'))>0))throw new Error('Escribe una tasa personalizada válida.');
@@ -801,7 +819,8 @@ $('#rateForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{
   const pays=(S.cfg.pays||[]).slice(),i=pays.findIndex(x=>x.id==='pm1');
   if(bank||phone||id){const text='Banco: '+bank+'\nTeléfono: '+phone+'\nCédula/RIF: '+id+(name?'\nTitular: '+name:'');
     const it=Object.assign({id:'pm1',name:'Pago Móvil',cur:'VES',qr:''},i>=0?pays[i]:{},{text});if(i>=0)pays[i]=it;else pays.unshift(it)}
-  S.cfg=Object.assign({},S.cfg,{rate:{mode:mode,custom:custom},pays:pays});commit();toast('Guardado y publicado.')})});
+  const po={};Object.keys(PAYM).forEach(k=>po[k]=$('#pmo_'+k).checked);if(!Object.values(po).some(Boolean))throw new Error('Deja al menos una forma de pago.');
+  S.cfg=Object.assign({},S.cfg,{rate:{mode:mode,custom:custom},pays:pays,payOpts:po});commit();toast('Guardado y publicado.')})});
 
 /* ---- aviso al vendedor (ntfy) ---- */
 function ntfyTopic(){return String(S.cfg.ntfy||'').trim().replace(/[^A-Za-z0-9_-]/g,'')}
@@ -999,12 +1018,12 @@ function renderOrders(){
     return '<div class="order"><div class="row"><b class="mono">'+esc(o.id)+'</b><span class="st '+esc(o.status)+'">'+esc(o.status)+'</span></div>'
     +'<div><b>'+esc(o.buyerName)+'</b> · <span class="mono">'+esc(o.contact)+'</span></div>'
     +'<ul>'+(o.items||[]).map(i=>'<li>'+esc(i.qty)+' × '+esc(i.name)+' <span class="muted">('+money(i.price)+' c/u al pedir)</span></li>').join('')+'</ul>'
-    +(o.note?'<div class="muted">Nota: '+esc(o.note)+'</div>':'')
+    +(o.note?'<div class="muted">Nota: '+esc(o.note)+'</div>':'')+'<div class="muted">Pago: '+esc(PAYM[o.pay]||'—')+(o.payRef?' · Ref. <b class="mono">'+esc(o.payRef)+'</b>':'')+'</div>'
     +'<div class="row"><span class="muted">'+new Date(o.createdAt||0).toLocaleString('es-VE')+'</span><b class="mono">'+money(o.total)+'</b></div>'
     +'<div class="row start">'+(o.status==='pendiente'?'<button class="btn sm" data-conf="'+esc(o.id)+'">Confirmar venta</button>':'')
     +(n&&o.status!=='cancelado'?waBtn(waLink(n,txt),'Escribir al comprador','sm'):'')
     +(o.status==='pendiente'?'<button class="btn danger sm" data-canc="'+esc(o.id)+'">Cancelar</button>':'')+'</div></div>'}).join('')
-    :empty('Sin pedidos','Los pedidos hechos desde este dispositivo aparecen aquí. Los de otros dispositivos te llegan por WhatsApp.');
+    :empty('Sin pedidos','Aquí llegan los pedidos de todos tus compradores, desde cualquier teléfono.');
 }
 $('#ordList').addEventListener('click',e=>{
   const c=e.target.closest('[data-conf]'),x=e.target.closest('[data-canc]');const t=c||x;if(!t)return;
@@ -1012,8 +1031,8 @@ $('#ordList').addEventListener('click',e=>{
   run(()=>{
     if(c){
       recordSale((o.items||[]).map(i=>({pid:i.pid,qty:Math.max(1,Math.floor(num(i.qty)))})),{date:today(),orderId:o.id,buyer:o.buyerName});
-      o.status='completado';o.completedAt=Date.now();commit();toast('Venta registrada y stock descontado.');
-    }else{o.status='cancelado';commit();toast('Pedido cancelado.')}
+      o.status='completado';o.completedAt=Date.now();commit();fbOrderStatus(o);toast('Venta registrada y stock descontado.');
+    }else{o.status='cancelado';commit();fbOrderStatus(o);toast('Pedido cancelado.')}
   });
 });
 
@@ -1054,7 +1073,7 @@ function loadCfgForm(){
 $('#cfgForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{
   S.cfg=Object.assign({},S.cfg,{bizName:$('#cfgName').value.trim()||'MOTORCYCLES-JZ',whatsapp:$('#cfgWa').value.trim(),cc:($('#cfgCc').value||'58').replace(/\D/g,'')||'58'});
   commit();toast('Ajustes guardados.')})});
-const pubData=()=>({cfg:{bizName:S.cfg.bizName,whatsapp:S.cfg.whatsapp,cc:S.cfg.cc,logo:S.cfg.logo||'',pays:S.cfg.pays||[],ntfy:S.cfg.ntfy||'',rate:S.cfg.rate||{},fbUrl:(S.cfg.fb&&S.cfg.fb.url)?fbBase(S.cfg.fb.url):(S.cfg.fbUrl||'')},products:S.products.map(p=>({id:p.id,name:p.name,sku:p.sku,category:p.category,fits:p.fits,price:p.price,stock:p.stock,minStock:p.minStock,photo:p.photo||''}))});
+const pubData=()=>({cfg:{bizName:S.cfg.bizName,whatsapp:S.cfg.whatsapp,cc:S.cfg.cc,logo:S.cfg.logo||'',pays:S.cfg.pays||[],ntfy:S.cfg.ntfy||'',rate:S.cfg.rate||{},payOpts:S.cfg.payOpts||{},fbUrl:(S.cfg.fb&&S.cfg.fb.url)?fbBase(S.cfg.fb.url):(S.cfg.fbUrl||'')},products:S.products.map(p=>({id:p.id,name:p.name,sku:p.sku,category:p.category,fits:p.fits,price:p.price,stock:p.stock,minStock:p.minStock,photo:p.photo||''}))});
 $('#expCatalog').addEventListener('click',()=>{download('catalogo.json',JSON.stringify(pubData()),'application/json');toast('catalogo.json descargado (sin costos).')});
 $('#expPublic').addEventListener('click',()=>run(()=>{
   const pub=pubData();
@@ -1177,6 +1196,7 @@ S.view='admin';
 $('#loginModal').hidden=true;$('#scrim').hidden=true;$('#drawer').hidden=true;
 prodPreview();renderAll();
 showTab(S.admin?'resumen':'tienda');
+if(!BUYER_ONLY){setTimeout(syncOrders,1500);setInterval(syncOrders,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncOrders()})}
 if(BUYER_ONLY){
   const apply=d=>{if(d&&Array.isArray(d.products)){S.products=d.products;S.cfg=Object.assign(blank().cfg,S.cfg,d.cfg||{},{fbUrl:(d.cfg&&d.cfg.fbUrl)||S.cfg.fbUrl});renderAll();return true}return false};
   try{const c=JSON.parse(localStorage.getItem('jz_cache')||'null');if(c&&c.products&&c.products.length)apply(c)}catch(e){}
@@ -1187,7 +1207,7 @@ if(BUYER_ONLY){
       if(apply(d)){try{localStorage.setItem('jz_cache',JSON.stringify({products:d.products,cfg:d.cfg||{}}))}catch(e){}}
     }).catch(()=>{});
   };
-  pull();setInterval(pull,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()});
+  pull();setInterval(pull,60000);setTimeout(()=>S.orders.filter(o=>o.sent===0&&o.status==='pendiente').forEach(o=>pushOrder(o).then(ok=>{if(ok){o.sent=1;save()}})),5000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()});
 }
 })();
 </script><script>if("serviceWorker" in navigator&&/^https?:/.test(location.protocol)){addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){})})}</script></body></html>
