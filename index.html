@@ -732,7 +732,7 @@ $('#cartBar').addEventListener('click',openCart);
 function renderDrawer(){
   const d=S.done;$('#cartView').hidden=!!d;$('#doneView').hidden=!d;
   if(!d)return;
-  $('#doneView').innerHTML='<div class="okmark">✓</div><h2>¡Pedido preparado!</h2><div class="code">'+esc(d.id)+'</div>'+(rateVal()?'<p class="hint"><b>Total a pagar: '+money(d.total)+' · '+bs(d.total)+'</b></p>':'')+'<p class="hint" id="syncMsg">Registrando tu pedido…</p><p class="hint">Si WhatsApp no se abrió, toca el botón verde para enviar el pedido al vendedor. Guarda este código.</p>'
+  $('#doneView').innerHTML='<div class="okmark">✓</div><h2>¡Pedido preparado!</h2><div class="code">'+esc(d.id)+'</div>'+(rateVal()?'<p class="hint"><b>Total a pagar: '+money(d.total)+' · '+bs(d.total)+'</b></p>':'')+'<p class="hint" id="syncMsg">Registrando tu pedido…</p><p class="hint" id="ntfyMsg"></p><p class="hint">Si WhatsApp no se abrió, toca el botón verde para enviar el pedido al vendedor. Guarda este código.</p>'
     +((d.pay==='pm'&&(S.cfg.pays||[]).length)?'<h3>Formas de pago</h3>'+S.cfg.pays.map(p=>'<div class="pay"><b>'+esc(p.name)+(p.cur?' ('+esc(p.cur)+')':'')+'</b>\n'+esc(p.text)+(p.qr?'<img src="'+esc(p.qr)+'" alt="QR de pago">':'')+'</div>').join(''):'')+(d.pay==='pm'?'<div class="pay"><b>¿Ya pagaste?</b><input id="payRef" placeholder="N.º de referencia del pago"><button type="button" class="btn ghost" id="payDone">Avisar al vendedor</button></div>':'<div class="pay"><b>'+esc(PAYM[d.pay]||'')+'</b>\nCoordina el pago con el vendedor.</div>')+'<a class="btn wa" href="'+esc(d.link)+'" target="_blank" rel="noopener">'+svg('wa')+'Enviar al vendedor por WhatsApp</a>'
     +'<button type="button" class="btn ghost" id="doneOrders">Ver mis pedidos</button><button type="button" class="btn ghost" id="doneClose">Seguir comprando</button>';
   if($('#payDone'))$('#payDone').onclick=()=>{const v=$('#payRef').value.trim();if(!v){toast('Escribe el número de referencia.',true);return}ntfySend('Pago reportado '+d.id,d.buyerName+' dice que pagó '+money(d.total)+(rateVal()?' ('+bs(d.total)+')':'')+'\nReferencia: '+v,['white_check_mark']);payPush(d,v);toast('Listo, avisamos al vendedor.')};
@@ -775,7 +775,7 @@ $('#orderForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{
   order.link=waTo(waOrderText(order));
   save();
   pushOrder(order).then(ok=>{if(ok){order.sent=1;save()}const m=$('#syncMsg');if(m)m.textContent=ok?'✓ Tu pedido quedó registrado con el vendedor.':'⚠ No se pudo registrar en el sistema ('+PUSH_ERR+'). Envíalo por WhatsApp; se reintentará solo.'});
-  ntfySend('Nuevo pedido '+order.id,order.buyerName+' · '+order.contact+'\n'+order.items.map(i=>i.qty+' × '+i.name).join('\n')+'\nTotal: '+money(order.total)+(rateVal()?' ('+bs(order.total)+')':'')+'\nPago: '+(PAYM[order.pay]||''),['motorcycle','money_with_wings']);
+  ntfySend('Nuevo pedido '+order.id,order.buyerName+' · '+order.contact+'\n'+order.items.map(i=>i.qty+' × '+i.name).join('\n')+'\nTotal: '+money(order.total)+(rateVal()?' ('+bs(order.total)+')':'')+'\nPago: '+(PAYM[order.pay]||''),['motorcycle','money_with_wings']).then(ok=>{const m=$('#ntfyMsg');if(m)m.textContent=ok?'✓ Se avisó al vendedor por notificación.':'⚠ No se pudo avisar por notificación ('+NTFY_ERR+').'});
   S.cart={};S.done=order;$('#oNote').value='';renderCart();renderDrawer();renderMine();
   if(sellerWa())window.open(order.link,'_blank','noopener');
   else toast('El vendedor aún no configuró su WhatsApp.',true);
@@ -828,8 +828,10 @@ $('#rateForm').addEventListener('submit',e=>{e.preventDefault();run(()=>{
 
 /* ---- aviso al vendedor (ntfy) ---- */
 function ntfyTopic(){return String(S.cfg.ntfy||'').trim().replace(/[^A-Za-z0-9_-]/g,'')}
-function ntfySend(title,message,tags){const t=ntfyTopic();if(!t)return Promise.resolve(false);
-  return fetch('https://ntfy.sh/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:t,title:title,message:message,tags:tags||['motorcycle'],priority:4})}).then(r=>r.ok).catch(()=>false)}
+let NTFY_ERR='';
+function ntfySend(title,message,tags){const t=ntfyTopic();if(!t){NTFY_ERR='esta tienda no tiene tu tema, recárgala';return Promise.resolve(false)}
+  const go=()=>fetch('https://ntfy.sh/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:t,title:title,message:message,tags:tags||['motorcycle'],priority:4})}).then(r=>{if(!r.ok)NTFY_ERR='error '+r.status;return r.ok}).catch(()=>{NTFY_ERR='sin conexión o bloqueado por tu red';return false});
+  return go().then(ok=>ok?true:new Promise(res=>setTimeout(()=>go().then(res),3000)))}
 
 /* ---- comprador: mis pedidos ---- */
 function renderMine(){
